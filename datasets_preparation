@@ -1,0 +1,124 @@
+from datasets import load_dataset
+import pandas as pd
+from sklearn.model_selection import train_test_split
+import os
+
+
+print("PHISHING DETECTION DATASET PREPARATION")
+
+# Primary training dataset from huggingface
+train_dataset = load_dataset("zefang-liu/phishing-email-dataset")
+
+# Validation/test dataset from local files
+eval_dataset = load_dataset("json", data_files="ealvaradob phishing dataset\combined_reduced.json")
+
+try:
+    print("Loading primary training dataset...")
+    dataset = load_dataset("zefang-liu/phishing-email-dataset")
+    
+    # The dataset might have 'train' split or no split
+    if 'train' in train_dataset:
+        df = pd.DataFrame(dataset['train'])
+    else:
+        # If no split, just use the first available split
+        split_name = list(train_dataset.keys())[0]
+        df = pd.DataFrame(train_dataset[split_name])
+    
+    print(f" Downloaded {len(df)} emails")
+    print(f"   Columns: {list(df.columns)}")
+    
+except Exception as e:
+    print(f" Error: {e}")
+    print("\n If download fails, you can:")
+    print("   1. Check internet connection")
+    print("   2. Try a different dataset")
+    print("   3. Load from a local CSV file instead")
+    exit()
+
+
+# EXPLORE DATA
+
+
+print("\nExploring the dataset...")
+print("-" * 80)
+
+print(f"\nDataset shape: {df.shape}")
+print(f"Columns: {list(df.columns)}\n")
+
+# Show first few rows
+print("First 3 rows:")
+print(df.head(3))
+
+# Check for missing values
+print(f"\nMissing values:")
+print(df.isnull().sum())
+
+# Check for duplicate rows
+print("\nDuplicate rows:", df.duplicated().sum())
+
+
+# IDENTIFY LABEL COLUMN
+
+
+print("\nIdentifying label column...")
+print("-" * 80)
+
+# Common names for label columns
+possible_labels = ['label', 'is_phishing', 'target', 'class', 'phishing', 'is_spam']
+
+# Try to auto-detect
+label_col = next((col for col in possible_labels if col in df.columns), None)
+
+# If not found, guess based on binary numeric/boolean columns
+if label_col is None:
+    binary_cols = [col for col in df.columns if df[col].nunique() == 2]
+    label_col = binary_cols[0] if binary_cols else None
+
+# Report result
+if label_col:
+    print(f" Using label column: '{label_col}'")
+    print("\nLabel distribution:")
+    print(df[label_col].value_counts())
+else:
+    print(" Could not identify label column automatically.")
+    print(" Available columns:", list(df.columns))
+    print(" Please specify the label column manually.")
+    exit()
+
+
+# TRAIN/VAL SPLIT
+
+print("\nCreating train/val split (85-15)...")
+print("-" * 80)
+
+# Separate features and labels from your main dataset
+X = df.drop(columns=[label_col])
+y = df[label_col]
+
+# Split into train (85%) and validation (15%)
+X_train, X_val, y_train, y_val = train_test_split(
+    X, y,
+    test_size=0.15,
+    stratify=y,       # keep phishing vs. legitimate ratio consistent
+    random_state=42   # reproducibility
+)
+
+# Recombine into DataFrames
+train_df = X_train.copy()
+train_df[label_col] = y_train.values
+
+val_df = X_val.copy()
+val_df[label_col] = y_val.values
+
+print(f"\nTRAIN SET: {len(train_df)} samples")
+print(f"VAL SET: {len(val_df)} samples")
+
+# Load your separate evaluation dataset as the test set
+print("\nLoading external evaluation dataset...")
+test_df = eval_dataset['train'].to_pandas()  # adjust split name if needed
+print(f"TEST SET (external): {len(test_df)} samples")
+
+# Show label distribution for all sets
+for split_name, split_df in [('TRAIN', train_df), ('VAL', val_df), ('TEST', test_df)]:
+    print(f"\n{split_name} SET: {len(split_df)} samples")
+    print(split_df[label_col].value_counts())
