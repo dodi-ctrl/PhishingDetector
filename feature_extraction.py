@@ -13,6 +13,7 @@ from email import policy
 from email.parser import BytesParser
 import numpy as np
 from collections import Counter
+from difflib import SequenceMatcher
 
 
 class FeatureExtractor:
@@ -77,7 +78,8 @@ class FeatureExtractor:
                 np.mean([len(word) for word in text_content.split()])
                 if features['word_count'] > 0 else 0
             )
-            features['sentence_count'] = len(re.findall(r'[.!?]+', text_content))
+            text_no_urls = re.sub(r'https?://\S+', '', text_content)
+            features['sentence_count'] = len(re.findall(r'[.!?]+', text_no_urls))
             
             # 2. CHARACTER ANALYSIS
             features['uppercase_ratio'] = (
@@ -209,76 +211,79 @@ class FeatureExtractor:
             features['excessive_urls'] = int(len(urls) > 5)
             
             if len(urls) > 0:
-                # Analyze first URL (usually the main phishing link)
-                primary_url = urls[0]
-                parsed = urlparse(primary_url)
-                
-                # 1. DOMAIN ANALYSIS
-                domain = parsed.netloc.lower()
-                features['domain_length'] = len(domain)
-                features['domain_has_ip'] = int(bool(re.match(r'\d+\.\d+\.\d+\.\d+', domain)))
-                features['domain_has_hyphen'] = int('-' in domain)
-                features['domain_has_at_symbol'] = int('@' in primary_url)
-                features['domain_dots_count'] = domain.count('.')
-                features['excessive_subdomains'] = int(domain.count('.') > 3)
-                
-                # 2. SUSPICIOUS DOMAIN PATTERNS
-                features['domain_has_suspicious_tld'] = int(
-                    any(domain.endswith(tld) for tld in ['.tk', '.ml', '.ga', '.cf', '.gq', '.xyz'])
-                )
-                features['domain_length_suspicious'] = int(len(domain) > 30)
-                
-                # 3. BRAND SPOOFING DETECTION
-                # Check if domain contains legitimate brand names but isn't the actual domain
-                brand_keywords = ['paypal', 'amazon', 'google', 'microsoft', 'apple', 
-                                'facebook', 'netflix', 'bank', 'secure']
-                features['possible_brand_spoofing'] = int(
-                    any(brand in domain for brand in brand_keywords) and
-                    not any(domain == legit for legit in self.legitimate_domains)
-                )
-                
-                # 4. URL PATH ANALYSIS
-                path = parsed.path
-                features['path_length'] = len(path)
-                features['path_has_suspicious_keywords'] = int(
-                    any(keyword in path.lower() for keyword in 
-                        ['verify', 'account', 'signin', 'login', 'update', 'confirm'])
-                )
-                
-                # 5. URL ENCODING/OBFUSCATION
-                features['url_has_encoding'] = int('%' in primary_url)
-                features['url_has_redirection'] = int('//' in primary_url.split('://')[1])
-                
-                # 6. QUERY PARAMETERS
-                query = parsed.query
-                features['has_query_params'] = int(bool(query))
-                features['query_param_count'] = len(query.split('&')) if query else 0
-                features['suspicious_param_count'] = sum(
-                    1 for param in ['user', 'id', 'token', 'session', 'redirect']
-                    if param in query.lower()
-                )
-                
-                # 7. PORT USAGE
-                features['uses_non_standard_port'] = int(
-                    parsed.port is not None and parsed.port not in [80, 443]
-                )
-                
-                # 8. SHORTENED URL DETECTION
+                # Analyze ALL URLs and aggregate to worst-case (most suspicious) values.
+                # Checking only the first URL misses phishing links embedded alongside
+                # legitimate ones, a common evasion technique.
+                brand_keywords = ['paypal', 'amazon', 'google', 'microsoft', 'apple',
+                                  'facebook', 'netflix', 'bank', 'secure']
                 shorteners = ['bit.ly', 'tinyurl.com', 'goo.gl', 't.co', 'ow.ly']
-                features['is_shortened_url'] = int(
-                    any(shortener in domain for shortener in shorteners)
-                )
-                
-                # 9. HTTPS USAGE
-                features['uses_https'] = int(parsed.scheme == 'https')
-                
-                # 10. URL SIMILARITY TO LEGITIMATE DOMAINS
-                # Check for typosquatting (e.g., paypa1.com instead of paypal.com)
-                features['potential_typosquatting'] = 0
-                for legit_domain in self.legitimate_domains:
-                    if self._calculate_similarity(domain, legit_domain) > 0.8 and domain != legit_domain:
-                        features['potential_typosquatting'] = 1
-                        break
+                suspicious_path_kws = ['verify', 'account', 'signin', 'login', 'update', 'confirm']
+                suspicious_tlds = ['.tk', '.ml', '.ga', '.cf', '.gq', '.xyz']
+                suspicious_params = ['user', 'id', 'token', 'session', 'redirect']
+
+                per_url = []
+                for url in urls:
+                    parsed = urlparse(url)
+                    domain = parsed.netloc.lower()
+                    query = parsed.query
+
+                    # Brand spoofing: domain contains brand name but is not the real domain
+                    # Use endswith to allow legitimate subdomains like accounts.google.com
+                    is_spoofing = int(
+                        any(brand in domain for brand in brand_keywords) and
+                        not any(
+                            domain == legit or domain.endswith('.' + legit)
+                            for legit in self.legitimate_domains
+                        )
+                    )
+
+                    typosquatting = 0
+                    for legit_domain in self.legitimate_domains:
+                        if self._calculate_similarity(domain, legit_domain) > 0.8 and domain != legit_domain:
+                            typosquatting = 1
+                            break
+
+                    per_url.append({
+                        'domain_length': len(domain),
+                        'domain_has_ip': int(bool(re.match(r'\d+\.\d+\.\d+\.\d+', domain))),
+                        'domain_has_hyphen': int('-' in domain),
+                        'domain_has_at_symbol': int('@' in url),
+                        'domain_dots_count': domain.count('.'),
+                        'excessive_subdomains': int(domain.count('.') > 3),
+                        'domain_has_suspicious_tld': int(any(domain.endswith(t) for t in suspicious_tlds)),
+                        'domain_length_suspicious': int(len(domain) > 30),
+                        'possible_brand_spoofing': is_spoofing,
+                        'path_length': len(parsed.path),
+                        'path_has_suspicious_keywords': int(any(kw in parsed.path.lower() for kw in suspicious_path_kws)),
+                        'url_has_encoding': int('%' in url),
+                        'url_has_redirection': int('//' in url.split('://')[1]),
+                        'has_query_params': int(bool(query)),
+                        'query_param_count': len(query.split('&')) if query else 0,
+                        'suspicious_param_count': sum(1 for p in suspicious_params if p in query.lower()),
+                        'uses_non_standard_port': int(parsed.port is not None and parsed.port not in [80, 443]),
+                        'is_shortened_url': int(any(s in domain for s in shorteners)),
+                        'uses_https': int(parsed.scheme == 'https'),
+                        'potential_typosquatting': typosquatting,
+                    })
+
+                # Aggregate: for boolean flags take any(); for counts take max()
+                bool_keys = [
+                    'domain_has_ip', 'domain_has_hyphen', 'domain_has_at_symbol',
+                    'excessive_subdomains', 'domain_has_suspicious_tld', 'domain_length_suspicious',
+                    'possible_brand_spoofing', 'path_has_suspicious_keywords', 'url_has_encoding',
+                    'url_has_redirection', 'has_query_params', 'uses_non_standard_port',
+                    'is_shortened_url', 'potential_typosquatting',
+                ]
+                max_keys = [
+                    'domain_length', 'domain_dots_count', 'path_length',
+                    'query_param_count', 'suspicious_param_count',
+                ]
+                for key in bool_keys:
+                    features[key] = int(any(u[key] for u in per_url))
+                for key in max_keys:
+                    features[key] = max(u[key] for u in per_url)
+                # HTTPS is only safe when ALL URLs use it
+                features['uses_https'] = int(all(u['uses_https'] for u in per_url))
                 
             else:
                 # No URLs found - set defaults
@@ -326,7 +331,7 @@ class FeatureExtractor:
             from_header = msg.get('From', '')
             sender_domain = self._extract_domain(from_header)
             features['sender_domain_length'] = len(sender_domain) if sender_domain else 0
-            features['sender_has_subdomain'] = int('.' in sender_domain.split('@')[-1] if '@' in sender_domain else False)
+            features['sender_has_subdomain'] = int(sender_domain.count('.') > 1)
             features['sender_has_digits'] = int(bool(re.search(r'\d', sender_domain)))
             features['sender_has_hyphen'] = int('-' in sender_domain)
             
@@ -347,11 +352,12 @@ class FeatureExtractor:
             
             # 4. AUTHENTICATION RECORDS
             # SPF (Sender Policy Framework)
+            # 'softfail' contains 'fail', so check softfail first to avoid overlap.
             received_spf = msg.get('Received-SPF', '').lower()
-            features['spf_pass'] = int('pass' in received_spf)
-            features['spf_fail'] = int('fail' in received_spf)
             features['spf_softfail'] = int('softfail' in received_spf)
-            features['spf_none'] = int(received_spf == '' or 'none' in received_spf)
+            features['spf_fail'] = int('fail' in received_spf and not features['spf_softfail'])
+            features['spf_pass'] = int('pass' in received_spf and not features['spf_softfail'] and not features['spf_fail'])
+            features['spf_none'] = int(not received_spf or 'none' in received_spf)
             
             # DKIM (DomainKeys Identified Mail)
             auth_results = msg.get('Authentication-Results', '').lower()
@@ -479,30 +485,45 @@ class FeatureExtractor:
         return ''
     
     def _get_email_body(self, msg):
-        """Extract plain text body from email message."""
+        """Extract plain text body from email message.
+
+        Prefers text/plain. Falls back to text/html with tags stripped,
+        since many phishing emails have no plain-text alternative.
+        """
+        plain_text = None
+        html_text = None
+
         if msg.is_multipart():
             for part in msg.walk():
-                if part.get_content_type() == 'text/plain':
-                    return part.get_content()
+                ct = part.get_content_type()
+                if ct == 'text/plain' and plain_text is None:
+                    plain_text = part.get_content()
+                elif ct == 'text/html' and html_text is None:
+                    html_text = part.get_content()
         else:
-            return msg.get_content()
+            ct = msg.get_content_type()
+            if ct == 'text/plain':
+                plain_text = msg.get_content()
+            elif ct == 'text/html':
+                html_text = msg.get_content()
+
+        if plain_text:
+            return plain_text
+        if html_text:
+            return re.sub(r'<[^>]+>', ' ', html_text)
         return ''
     
     def _calculate_similarity(self, str1, str2):
-        """Calculate simple similarity ratio between two strings."""
-        # Simple Levenshtein-like similarity
+        """Calculate string similarity ratio using SequenceMatcher (edit-distance based).
+
+        The previous positional zip approach failed on shifted strings like
+        'paypa1.com' vs 'paypal.com' where characters diverge after the
+        substitution. SequenceMatcher correctly handles insertions, deletions,
+        and substitutions.
+        """
         if not str1 or not str2:
             return 0.0
-        
-        longer = str1 if len(str1) > len(str2) else str2
-        shorter = str2 if len(str1) > len(str2) else str1
-        
-        if len(longer) == 0:
-            return 1.0
-        
-        # Count matching characters
-        matches = sum(1 for a, b in zip(longer, shorter) if a == b)
-        return matches / len(longer)
+        return SequenceMatcher(None, str1, str2).ratio()
     
     def _get_default_text_features(self):
         """Return default text features dictionary."""
