@@ -64,18 +64,32 @@ def load_meajor_dataset(total_samples=20000, legit_ratio=0.7):
         
         # Identify label column (check common names)
         label_col = None
-        possible_labels = ['label', 'is_phishing', 'target', 'class', 'phishing']
+        possible_labels = ['label', 'is_phishing', 'target', 'class', 'phishing', 'Email Type']
         for col in possible_labels:
             if col in df.columns:
                 label_col = col
                 break
-        
+
         if label_col is None:
             print(f"Available columns: {list(df.columns)}")
             raise ValueError("Could not find label column")
-        
+
         print(f"✓ Using label column: '{label_col}'")
-        
+
+        # Convert string labels to numeric if needed (e.g. "Safe Email" / "Phishing Email")
+        # Use is_integer_dtype rather than == object to handle PyArrow-backed string columns
+        if not pd.api.types.is_integer_dtype(df[label_col]):
+            unique_vals = df[label_col].unique()
+            print(f"  String labels detected: {list(unique_vals)}")
+            phishing_str = next(
+                (v for v in unique_vals if 'phish' in str(v).lower()), None
+            )
+            if phishing_str is None:
+                raise ValueError(f"Cannot identify phishing label from values: {list(unique_vals)}")
+            df['label'] = (df[label_col] == phishing_str).astype(int)
+            label_col = 'label'
+            print(f"  Converted: '{phishing_str}' → 1, others → 0")
+
         # Check current distribution
         legit_count = (df[label_col] == 0).sum()
         phishing_count = (df[label_col] == 1).sum()
@@ -373,7 +387,7 @@ def main():
     
     # Identify text column (email body)
     text_column = None
-    possible_text_cols = ['text', 'body', 'email_body', 'content', 'email']
+    possible_text_cols = ['text', 'body', 'email_body', 'content', 'email', 'Email Text']
     for col in possible_text_cols:
         if col in df.columns:
             text_column = col

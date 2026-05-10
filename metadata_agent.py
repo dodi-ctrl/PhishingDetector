@@ -547,7 +547,7 @@ if __name__ == "__main__":
 
     # Identify the column that holds email body text
     text_column = None
-    for col in ['text', 'body', 'email_body', 'content', 'email']:
+    for col in ['text', 'body', 'email_body', 'content', 'email', 'Email Text']:
         if col in df.columns:
             text_column = col
             break
