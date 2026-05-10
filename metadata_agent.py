@@ -517,102 +517,91 @@ class MetadataAgent:
         print(f"\n✓ Results exported to: {filepath}")
 
 
-# Example usage and testing
 if __name__ == "__main__":
-    print("Metadata Agent - Random Forest Classifier")
+    from dataset_handling import load_meajor_dataset, extract_features_from_emails
+    from feature_extraction import FeatureExtractor
+
+    # NOTE: The MeAJOR corpus provides email body text only — not full RFC 2822
+    # emails with real headers. SPF/DKIM/DMARC fields are therefore unavailable.
+    # The agent trains on text + URL features from FeatureExtractor instead,
+    # which are extracted by dataset_handling.
+
     print("="*70)
-    
-    # Example: Create sample data
-    print("\nGenerating sample metadata features for demonstration...")
-    
-    # Simulated metadata features for 100 emails (50 phishing, 50 legitimate)
-    np.random.seed(42)
-    
-    # Legitimate emails (label = 0)
-    legit_features = []
-    for _ in range(50):
-        features = {
-            'sender_domain_length': np.random.randint(10, 20),
-            'sender_has_subdomain': np.random.choice([0, 1], p=[0.7, 0.3]),
-            'sender_has_digits': np.random.choice([0, 1], p=[0.9, 0.1]),
-            'spf_pass': 1,
-            'dkim_pass': 1,
-            'dmarc_pass': 1,
-            'reply_to_mismatch': 0,
-            'num_received_headers': np.random.randint(3, 8),
-            'subject_urgent_keywords': 0,
-            'high_priority': np.random.choice([0, 1], p=[0.9, 0.1])
-        }
-        legit_features.append(features)
-    
-    # Phishing emails (label = 1)
-    phishing_features = []
-    for _ in range(50):
-        features = {
-            'sender_domain_length': np.random.randint(25, 40),
-            'sender_has_subdomain': np.random.choice([0, 1], p=[0.3, 0.7]),
-            'sender_has_digits': np.random.choice([0, 1], p=[0.3, 0.7]),
-            'spf_pass': 0,
-            'dkim_pass': 0,
-            'dmarc_pass': 0,
-            'reply_to_mismatch': 1,
-            'num_received_headers': np.random.randint(8, 15),
-            'subject_urgent_keywords': np.random.randint(1, 4),
-            'high_priority': np.random.choice([0, 1], p=[0.3, 0.7])
-        }
-        phishing_features.append(features)
-    
-    # Combine and create labels
-    all_features = legit_features + phishing_features
-    labels = [0] * 50 + [1] * 50
-    
-    # Initialize agent
-    agent = MetadataAgent(n_estimators=100, random_state=42)
-    
-    # Prepare features
-    X = agent.prepare_features(all_features)
-    y = np.array(labels)
-    
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42, stratify=y
+    print("METADATA AGENT — Training on MeAJOR Corpus")
+    print("="*70)
+
+    # ----------------------------------------
+    # STEP 1: Load dataset
+    # ----------------------------------------
+    TOTAL_SAMPLES = 20000
+    LEGIT_RATIO = 0.7  # 70% legitimate, 30% phishing
+
+    df, label_col = load_meajor_dataset(
+        total_samples=TOTAL_SAMPLES,
+        legit_ratio=LEGIT_RATIO
     )
-    
-    print(f"\nTraining set: {len(X_train)} samples")
-    print(f"Test set: {len(X_test)} samples")
-    
-    # Train the agent
+
+    if df is None:
+        print("\n✗ Dataset load failed. Cannot continue.")
+        exit(1)
+
+    # Identify the column that holds email body text
+    text_column = None
+    for col in ['text', 'body', 'email_body', 'content', 'email']:
+        if col in df.columns:
+            text_column = col
+            break
+
+    if text_column is None:
+        print(f"\n✗ Could not find text column. Available columns: {list(df.columns)}")
+        exit(1)
+
+    print(f"\n✓ Using text column: '{text_column}'")
+
+    # ----------------------------------------
+    # STEP 2: Extract features
+    # ----------------------------------------
+    extractor = FeatureExtractor()
+    features_df = extract_features_from_emails(df, text_column, extractor)
+    labels = df[label_col].values
+
+    # ----------------------------------------
+    # STEP 3: Train / test split
+    # ----------------------------------------
+    X_train, X_test, y_train, y_test = train_test_split(
+        features_df, labels,
+        test_size=0.3,
+        random_state=42,
+        stratify=labels
+    )
+
+    print(f"\nTraining samples: {len(X_train)}")
+    print(f"Test samples:     {len(X_test)}")
+    print(f"  - Legitimate:   {(y_test == 0).sum()}")
+    print(f"  - Phishing:     {(y_test == 1).sum()}")
+
+    # ----------------------------------------
+    # STEP 4: Train the agent
+    # ----------------------------------------
+    agent = MetadataAgent(n_estimators=100, max_depth=20, random_state=42)
     agent.train(X_train, y_train, validate=True, tune_hyperparameters=False)
-    
-    # Evaluate
-    results = agent.evaluate(X_test, y_test, plot_results=False)
-    
-    # Test single prediction
+
+    # ----------------------------------------
+    # STEP 5: Evaluate — prints all metrics
+    # (accuracy, precision, recall, F1, ROC-AUC,
+    #  FPR, FNR, TNR, confusion matrix, classification report)
+    # ----------------------------------------
+    results = agent.evaluate(X_test, y_test, plot_results=True)
+
+    # ----------------------------------------
+    # STEP 6: Save model and results to disk
+    # ----------------------------------------
+    agent.save_model('metadata_agent.pkl')
+    agent.export_results(results, 'metadata_agent_results.json')
+
     print("\n" + "="*70)
-    print("TESTING SINGLE EMAIL PREDICTION")
-    print("="*70)
-    
-    test_email_metadata = {
-        'sender_domain_length': 35,
-        'sender_has_subdomain': 1,
-        'sender_has_digits': 1,
-        'spf_pass': 0,
-        'dkim_pass': 0,
-        'dmarc_pass': 0,
-        'reply_to_mismatch': 1,
-        'num_received_headers': 12,
-        'subject_urgent_keywords': 3,
-        'high_priority': 1
-    }
-    
-    prediction = agent.get_prediction_with_confidence(test_email_metadata)
-    print(f"\nVerdict: {prediction['verdict']}")
-    print(f"Confidence: {prediction['confidence']:.4f}")
-    print(f"Phishing Probability: {prediction['phishing_probability']:.4f}")
-    
-    # Save model
-    agent.save_model('metadata_agent_example.pkl')
-    
-    print("\n" + "="*70)
-    print("✓ Metadata Agent demonstration complete!")
+    print("✓ MetadataAgent training complete!")
+    print(f"  Accuracy:  {results['accuracy']:.4f}")
+    print(f"  F1-Score:  {results['f1_score']:.4f}")
+    print(f"  ROC-AUC:   {results['roc_auc']:.4f}")
     print("="*70)
