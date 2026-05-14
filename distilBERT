@@ -1,6 +1,0 @@
-import transformers  
-# Load model directly
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
-tokenizer = AutoTokenizer.from_pretrained("distilbert/distilbert-base-uncased-finetuned-sst-2-english")
-model = AutoModelForSequenceClassification.from_pretrained("distilbert/distilbert-base-uncased-finetuned-sst-2-english")
