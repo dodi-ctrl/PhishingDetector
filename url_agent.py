@@ -1,7 +1,7 @@
 """
 URL Agent for Phishing Detection
 Uses Random Forest Classifier to analyse URL-based features extracted from emails.
-
+Author: Udodinachukwu David Nwoke
 Project: Social Engineering Attacks (Phishing) Detection using NLP
 """
 
