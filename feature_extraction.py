@@ -227,6 +227,13 @@ class FeatureExtractor:
                     domain = parsed.netloc.lower()
                     query = parsed.query
 
+                    # parsed.port raises ValueError for non-integer port strings
+                    # (e.g. "http://host:TheCloud/path"). Catch it and treat as None.
+                    try:
+                        _port = parsed.port
+                    except ValueError:
+                        _port = None
+
                     # Brand spoofing: domain contains brand name but is not the real domain
                     # Use endswith to allow legitimate subdomains like accounts.google.com
                     is_spoofing = int(
@@ -260,7 +267,7 @@ class FeatureExtractor:
                         'has_query_params': int(bool(query)),
                         'query_param_count': len(query.split('&')) if query else 0,
                         'suspicious_param_count': sum(1 for p in suspicious_params if p in query.lower()),
-                        'uses_non_standard_port': int(parsed.port is not None and parsed.port not in [80, 443]),
+                        'uses_non_standard_port': int(_port is not None and _port not in [80, 443]),
                         'is_shortened_url': int(any(s in domain for s in shorteners)),
                         'uses_https': int(parsed.scheme == 'https'),
                         'potential_typosquatting': typosquatting,
