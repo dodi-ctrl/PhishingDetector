@@ -2,8 +2,8 @@
 Metadata Agent for Phishing Detection
 Uses Random Forest Classifier to analyze email metadata features.
 
-Author: Ifanyi Uche Henry
-Project: Social Engineering Attacks (Phishing) Detection using NLP
+Author:  Udodinachukwu David Nwoke
+Project: Smart Phishing Detection using NLP
 """
 
 import pandas as pd
