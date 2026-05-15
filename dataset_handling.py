@@ -7,6 +7,9 @@ Author: Final Year Project
 Dataset: MeAJOR Corpus - Peer-reviewed at LREC-COLING 2024
 """
 
+import os
+import re
+import mailbox
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -18,6 +21,9 @@ from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datasets import load_dataset
+from email import policy as email_policy
+from email.parser import BytesParser
+from email.utils import parsedate_to_datetime
 import json
 import warnings
 warnings.filterwarnings('ignore')
@@ -442,3 +448,409 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ============================================================
+# MULTI-CORPUS LOADERS
+# ============================================================
+
+def load_eml_directory(directory, label):
+    """
+    Walk a directory and load all .eml files as raw bytes.
+    Returns list of (raw_bytes, label) tuples.
+    """
+    records = []
+    if not os.path.isdir(directory):
+        print(f"  Warning: directory not found: {directory}")
+        return records
+
+    for root, _, files in os.walk(directory):
+        for fname in files:
+            if fname.lower().endswith('.eml'):
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, 'rb') as f:
+                        records.append((f.read(), label))
+                except Exception as e:
+                    print(f"  Warning: could not read {fpath}: {e}")
+
+    print(f"  Loaded {len(records)} .eml files from {directory} (label={label})")
+    return records
+
+
+def load_mbox(mbox_path, label, after_year=None):
+    """
+    Parse an mbox file and return list of (raw_bytes, label) tuples.
+    Optionally filter to messages from after_year onwards.
+    """
+    records = []
+    if not os.path.isfile(mbox_path):
+        print(f"  Warning: mbox not found: {mbox_path}")
+        return records
+
+    mbox = mailbox.mbox(mbox_path)
+    for msg in mbox:
+        try:
+            if after_year is not None:
+                try:
+                    dt = parsedate_to_datetime(msg.get('Date', ''))
+                    if dt.year < after_year:
+                        continue
+                except Exception:
+                    pass  # include if date can't be parsed
+            records.append((msg.as_bytes(), label))
+        except Exception:
+            pass
+
+    print(f"  Loaded {len(records)} messages from {mbox_path} (label={label})")
+    return records
+
+
+def load_enron_ham_from_huggingface(max_samples=5000):
+    """
+    Load Enron ham from SetFit/enron_spam on HuggingFace.
+    The HuggingFace version contains text body + subject, not full RFC 2822
+    headers, so we reconstruct a minimal envelope for the parser.
+    Returns list of (raw_bytes, label=0) tuples.
+    """
+    print("  Loading Enron ham from HuggingFace (SetFit/enron_spam)...")
+    try:
+        ds = load_dataset("SetFit/enron_spam", split="train")
+    except Exception as e:
+        print(f"  Warning: could not load Enron dataset: {e}")
+        return []
+
+    records = []
+    for row in ds:
+        if row.get('label', 1) != 0:   # 0 = ham
+            continue
+
+        subject = row.get('subject', '') or ''
+        text    = row.get('text', '')    or ''
+        sender  = row.get('sender', 'enron@enron.com') or 'enron@enron.com'
+
+        # Minimal RFC 2822 envelope — no auth headers, no Received chain.
+        # Metadata features that depend on SPF/DKIM/DMARC will be zero,
+        # which is the correct baseline for this corpus.
+        raw = (
+            f"From: {sender}\r\n"
+            f"Subject: {subject}\r\n"
+            f"Date: Mon, 01 Jan 2001 12:00:00 +0000\r\n"
+            f"Message-ID: <enron-ham@enron.com>\r\n"
+            f"\r\n"
+            f"{text}"
+        ).encode('utf-8', errors='replace')
+
+        records.append((raw, 0))
+        if len(records) >= max_samples:
+            break
+
+    print(f"  Loaded {len(records)} Enron ham emails (label=0)")
+    return records
+
+
+def load_phishtank_urls(csv_path, max_urls=50000):
+    """
+    Load PhishTank CSV (column: 'url'). Returns list of (url, label=1) tuples.
+    """
+    if not os.path.isfile(csv_path):
+        print(f"  Warning: PhishTank CSV not found: {csv_path}")
+        return []
+    try:
+        df = pd.read_csv(csv_path, usecols=['url'], nrows=max_urls)
+        records = [(u, 1) for u in df['url'].dropna().tolist()]
+        print(f"  Loaded {len(records)} phishing URLs from PhishTank")
+        return records
+    except Exception as e:
+        print(f"  Warning: could not load PhishTank CSV: {e}")
+        return []
+
+
+def load_umbrella_domains(csv_path, limit=50000):
+    """
+    Load Cisco Umbrella top-1M CSV (rank,domain). Returns list of
+    ('https://<domain>/', label=0) tuples — minimal URL for feature extraction.
+    """
+    if not os.path.isfile(csv_path):
+        print(f"  Warning: Umbrella CSV not found: {csv_path}")
+        return []
+    try:
+        df = pd.read_csv(csv_path, header=None, names=['rank', 'domain'], nrows=limit)
+        records = [(f"https://{row['domain']}/", 0)
+                   for _, row in df.iterrows() if pd.notna(row['domain'])]
+        print(f"  Loaded {len(records)} legitimate domains from Umbrella top-1M")
+        return records
+    except Exception as e:
+        print(f"  Warning: could not load Umbrella CSV: {e}")
+        return []
+
+
+# ============================================================
+# CORPUS BUILDERS
+# ============================================================
+
+def build_eml_corpus(
+    phishing_dirs=None,
+    phishing_mbox_paths=None,
+    enron_max=5000,
+    nazario_after_year=2022,
+):
+    """
+    Assemble a unified .eml corpus for the metadata and URL agents.
+
+    Parameters
+    ----------
+    phishing_dirs : list[str]
+        Directories containing phishing .eml files (e.g. phishing_pot/emails/).
+    phishing_mbox_paths : list[str]
+        Paths to phishing mbox files (e.g. phishing3.mbox from Nazario).
+    enron_max : int
+        Cap on Enron ham emails loaded from HuggingFace.
+    nazario_after_year : int
+        Discard Nazario emails older than this year.
+
+    Returns
+    -------
+    pd.DataFrame  columns: raw_bytes, label, source
+    """
+    print("\n" + "="*70)
+    print("BUILDING EML CORPUS (phishing_pot + Nazario + Enron)")
+    print("="*70)
+
+    all_records = []
+
+    if phishing_dirs:
+        for d in phishing_dirs:
+            for raw, lbl in load_eml_directory(d, label=1):
+                all_records.append({'raw_bytes': raw, 'label': lbl, 'source': 'phishing_pot'})
+
+    if phishing_mbox_paths:
+        for path in phishing_mbox_paths:
+            for raw, lbl in load_mbox(path, label=1, after_year=nazario_after_year):
+                all_records.append({'raw_bytes': raw, 'label': lbl, 'source': 'nazario'})
+
+    for raw, lbl in load_enron_ham_from_huggingface(max_samples=enron_max):
+        all_records.append({'raw_bytes': raw, 'label': lbl, 'source': 'enron'})
+
+    if not all_records:
+        print("\nWarning: No emails loaded — check your data paths.")
+        return pd.DataFrame(columns=['raw_bytes', 'label', 'source'])
+
+    df = pd.DataFrame(all_records)
+    phishing_n = (df['label'] == 1).sum()
+    legit_n    = (df['label'] == 0).sum()
+
+    print(f"\n✓ EML corpus built:")
+    print(f"  Phishing:   {phishing_n}")
+    print(f"  Legitimate: {legit_n}")
+    print(f"  Total:      {len(df)}")
+    print(f"  Sources:    {df['source'].value_counts().to_dict()}")
+    return df
+
+
+def build_url_corpus(
+    eml_df=None,
+    phishtank_csv=None,
+    umbrella_csv=None,
+    umbrella_limit=50000,
+):
+    """
+    Build a URL corpus combining:
+      - URLs extracted from the EML corpus (phishing + ham emails)
+      - PhishTank verified phishing URLs
+      - Cisco Umbrella legitimate domains
+
+    Parameters
+    ----------
+    eml_df : pd.DataFrame or None
+        Output of build_eml_corpus(). Pass None to skip EML URLs.
+    phishtank_csv : str or None
+        Path to PhishTank online-valid.csv.
+    umbrella_csv : str or None
+        Path to Umbrella top-1m.csv.
+    umbrella_limit : int
+        Maximum Umbrella rows to load.
+
+    Returns
+    -------
+    pd.DataFrame  columns: url_text, label, source
+    """
+    print("\n" + "="*70)
+    print("BUILDING URL CORPUS (EML + PhishTank + Umbrella)")
+    print("="*70)
+
+    all_records = []
+
+    if eml_df is not None and len(eml_df) > 0:
+        print("  Extracting URLs from EML corpus...")
+        url_count_before = 0
+        for _, row in eml_df.iterrows():
+            try:
+                body = _extract_text_from_raw_email(row['raw_bytes'])
+                urls = re.findall(r'https?://[^\s<>"\']+', body)
+                for url in urls:
+                    all_records.append({
+                        'url_text': url,
+                        'label': row['label'],
+                        'source': f"eml_{row.get('source', 'unknown')}",
+                    })
+            except Exception:
+                pass
+        print(f"  Extracted {len(all_records) - url_count_before} URLs from EML corpus")
+
+    if phishtank_csv:
+        for url, lbl in load_phishtank_urls(phishtank_csv):
+            all_records.append({'url_text': url, 'label': lbl, 'source': 'phishtank'})
+
+    if umbrella_csv:
+        for url, lbl in load_umbrella_domains(umbrella_csv, limit=umbrella_limit):
+            all_records.append({'url_text': url, 'label': lbl, 'source': 'umbrella'})
+
+    if not all_records:
+        print("\nWarning: No URLs loaded — check your data paths.")
+        return pd.DataFrame(columns=['url_text', 'label', 'source'])
+
+    df = pd.DataFrame(all_records)
+    phishing_n = (df['label'] == 1).sum()
+    legit_n    = (df['label'] == 0).sum()
+
+    print(f"\n✓ URL corpus built:")
+    print(f"  Phishing:   {phishing_n}")
+    print(f"  Legitimate: {legit_n}")
+    print(f"  Total:      {len(df)}")
+    print(f"  Sources:    {df['source'].value_counts().to_dict()}")
+    return df
+
+
+def extract_body_text_from_eml_corpus(eml_df):
+    """
+    Extract plain-text body from each .eml in eml_df for DistilBERT fine-tuning.
+    Returns pd.DataFrame with columns: text, label, source — suitable for
+    concatenation with the MeAJOR CSV corpus.
+    """
+    rows = []
+    for _, row in eml_df.iterrows():
+        try:
+            text = _extract_text_from_raw_email(row['raw_bytes'])
+        except Exception:
+            text = ''
+        if text.strip():
+            rows.append({'text': text, 'label': row['label'], 'source': row.get('source', 'eml')})
+    return pd.DataFrame(rows)
+
+
+# ============================================================
+# FEATURE EXTRACTION FROM CORPORA
+# ============================================================
+
+def extract_metadata_features_from_eml_corpus(eml_df, extractor):
+    """
+    Run extract_metadata_features() on every raw email in eml_df.
+
+    Parameters
+    ----------
+    eml_df : pd.DataFrame   columns: raw_bytes, label
+    extractor : FeatureExtractor
+
+    Returns
+    -------
+    tuple: (features_df, labels_array)
+    """
+    print("\n" + "="*70)
+    print("EXTRACTING METADATA FEATURES FROM EML CORPUS")
+    print("="*70)
+
+    all_features = []
+    total = len(eml_df)
+
+    for i, (_, row) in enumerate(eml_df.iterrows()):
+        if i % 500 == 0 and i > 0:
+            print(f"  Processed {i}/{total} emails...")
+        try:
+            raw = row['raw_bytes']
+            if isinstance(raw, str):
+                raw = raw.encode('utf-8', errors='replace')
+            all_features.append(extractor.extract_metadata_features(raw))
+        except Exception:
+            all_features.append(extractor._get_default_metadata_features())
+
+    features_df = pd.DataFrame(all_features).fillna(0)
+    labels = eml_df['label'].values
+
+    print(f"\n✓ Extracted {len(features_df.columns)} metadata features from {len(features_df)} emails")
+    return features_df, labels
+
+
+def extract_url_features_from_url_corpus(url_df, extractor):
+    """
+    Run extract_url_features() on every entry in url_df.
+    Each row's url_text is treated as the 'email body' — the regex inside
+    extract_url_features finds the URL and processes it.
+
+    Parameters
+    ----------
+    url_df : pd.DataFrame   columns: url_text, label
+    extractor : FeatureExtractor
+
+    Returns
+    -------
+    tuple: (features_df, labels_array)
+    """
+    print("\n" + "="*70)
+    print("EXTRACTING URL FEATURES FROM URL CORPUS")
+    print("="*70)
+
+    all_features = []
+    total = len(url_df)
+
+    for i, (_, row) in enumerate(url_df.iterrows()):
+        if i % 5000 == 0 and i > 0:
+            print(f"  Processed {i}/{total} URLs...")
+        try:
+            all_features.append(extractor.extract_url_features(str(row['url_text'])))
+        except Exception:
+            all_features.append(extractor._get_default_url_features())
+
+    features_df = pd.DataFrame(all_features).fillna(0)
+    labels = url_df['label'].values
+
+    print(f"\n✓ Extracted {len(features_df.columns)} URL features from {len(features_df)} entries")
+    return features_df, labels
+
+
+# ============================================================
+# INTERNAL HELPER
+# ============================================================
+
+def _extract_text_from_raw_email(raw):
+    """Extract plain-text body from raw RFC 2822 bytes or string."""
+    try:
+        if isinstance(raw, str):
+            raw = raw.encode('utf-8', errors='replace')
+        msg = BytesParser(policy=email_policy.default).parsebytes(raw)
+        plain, html = None, None
+
+        if msg.is_multipart():
+            for part in msg.walk():
+                ct = part.get_content_type()
+                if ct == 'text/plain' and plain is None:
+                    plain = part.get_content()
+                elif ct == 'text/html' and html is None:
+                    html = part.get_content()
+        else:
+            ct = msg.get_content_type()
+            if ct == 'text/plain':
+                plain = msg.get_content()
+            elif ct == 'text/html':
+                html = msg.get_content()
+
+        if plain:
+            return plain
+        if html:
+            return re.sub(r'<[^>]+>', ' ', html)
+    except Exception:
+        pass
+    # Last-resort: decode raw bytes as text
+    if isinstance(raw, bytes):
+        return raw.decode('utf-8', errors='replace')
+    return str(raw)
