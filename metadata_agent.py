@@ -518,61 +518,57 @@ class MetadataAgent:
 
 
 if __name__ == "__main__":
-    from dataset_handling import load_meajor_dataset, extract_features_from_emails
+    from dataset_handling import (
+        build_eml_corpus,
+        extract_metadata_features_from_eml_corpus,
+    )
     from feature_extraction import FeatureExtractor
 
-    # NOTE: The MeAJOR corpus provides email body text only — not full RFC 2822
-    # emails with real headers. SPF/DKIM/DMARC fields are therefore unavailable.
-    # The agent trains on text + URL features from FeatureExtractor instead,
-    # which are extracted by dataset_handling.
-
     print("="*70)
-    print("METADATA AGENT — Training on MeAJOR Corpus")
+    print("METADATA AGENT — Training on Multiple Corpora")
+    print("(phishing_pot + Nazario phishing  |  Enron ham)")
     print("="*70)
 
     # ----------------------------------------
-    # STEP 1: Load dataset
+    # STEP 1: Configure data paths
+    # Update these after downloading in Colab:
+    #   !git clone https://github.com/rf-peixoto/phishing_pot.git
+    #   !wget https://monkey.org/~jose/phishing/phishing3.mbox
     # ----------------------------------------
-    TOTAL_SAMPLES = 20000
-    LEGIT_RATIO = 0.7  # 70% legitimate, 30% phishing
+    PHISHING_DIRS  = ['phishing_pot/emails']   # phishing_pot .eml directory
+    PHISHING_MBOX  = ['phishing3.mbox']        # Nazario mbox (filtered to 2022+)
+    ENRON_MAX      = 5000                       # cap on Enron ham from HuggingFace
 
-    df, label_col = load_meajor_dataset(
-        total_samples=TOTAL_SAMPLES,
-        legit_ratio=LEGIT_RATIO
+    # ----------------------------------------
+    # STEP 2: Build EML corpus
+    # ----------------------------------------
+    eml_df = build_eml_corpus(
+        phishing_dirs=PHISHING_DIRS,
+        phishing_mbox_paths=PHISHING_MBOX,
+        enron_max=ENRON_MAX,
+        nazario_after_year=2022,
     )
 
-    if df is None:
-        print("\n✗ Dataset load failed. Cannot continue.")
+    if len(eml_df) == 0:
+        print("\n✗ No emails loaded. Check data paths and re-run.")
         exit(1)
-
-    # Identify the column that holds email body text
-    text_column = None
-    for col in ['text', 'body', 'email_body', 'content', 'email', 'Email Text']:
-        if col in df.columns:
-            text_column = col
-            break
-
-    if text_column is None:
-        print(f"\n✗ Could not find text column. Available columns: {list(df.columns)}")
-        exit(1)
-
-    print(f"\n✓ Using text column: '{text_column}'")
 
     # ----------------------------------------
-    # STEP 2: Extract features
+    # STEP 3: Extract real metadata features
+    # (SPF, DKIM, DMARC, Received headers, sender
+    #  analysis, subject flags — from actual headers)
     # ----------------------------------------
     extractor = FeatureExtractor()
-    features_df = extract_features_from_emails(df, text_column, extractor)
-    labels = df[label_col].values
+    features_df, labels = extract_metadata_features_from_eml_corpus(eml_df, extractor)
 
     # ----------------------------------------
-    # STEP 3: Train / test split
+    # STEP 4: Train / test split
     # ----------------------------------------
     X_train, X_test, y_train, y_test = train_test_split(
         features_df, labels,
         test_size=0.3,
         random_state=42,
-        stratify=labels
+        stratify=labels,
     )
 
     print(f"\nTraining samples: {len(X_train)}")
@@ -581,20 +577,18 @@ if __name__ == "__main__":
     print(f"  - Phishing:     {(y_test == 1).sum()}")
 
     # ----------------------------------------
-    # STEP 4: Train the agent
+    # STEP 5: Train the agent
     # ----------------------------------------
     agent = MetadataAgent(n_estimators=100, max_depth=20, random_state=42)
     agent.train(X_train, y_train, validate=True, tune_hyperparameters=False)
 
     # ----------------------------------------
-    # STEP 5: Evaluate — prints all metrics
-    # (accuracy, precision, recall, F1, ROC-AUC,
-    #  FPR, FNR, TNR, confusion matrix, classification report)
+    # STEP 6: Evaluate
     # ----------------------------------------
     results = agent.evaluate(X_test, y_test, plot_results=True)
 
     # ----------------------------------------
-    # STEP 6: Save model and results to disk
+    # STEP 7: Save model and results
     # ----------------------------------------
     agent.save_model('metadata_agent.pkl')
     agent.export_results(results, 'metadata_agent_results.json')

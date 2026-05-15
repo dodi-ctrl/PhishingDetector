@@ -468,9 +468,40 @@ class FeatureExtractor:
             'url': self.extract_url_features(text_content),
             'metadata': self.extract_metadata_features(email_content)
         }
-        
+
         return all_features
-    
+
+    def extract_features_from_eml(self, raw_email):
+        """
+        Convenience wrapper for raw .eml input. Parses the message once,
+        extracts the body via the MIME walker, and returns a flat dict
+        combining text, URL, and metadata features — ready to feed into
+        a single DataFrame row.
+
+        Parameters
+        ----------
+        raw_email : bytes or str
+            Full RFC 2822 email (headers + body), as loaded from an
+            .eml file or mbox message.
+
+        Returns
+        -------
+        dict : flat dict of all features (text + url + metadata merged)
+        """
+        try:
+            raw = raw_email if isinstance(raw_email, bytes) else raw_email.encode('utf-8', errors='replace')
+            msg = BytesParser(policy=policy.default).parsebytes(raw)
+            body = self._get_email_body(msg)
+        except Exception:
+            body = str(raw_email)
+            raw = raw_email
+
+        return {
+            **self.extract_text_features(body),
+            **self.extract_url_features(body),
+            **self.extract_metadata_features(raw),
+        }
+
     # Helper methods
     def _extract_domain(self, email_string):
         """Extract domain from email address or header."""

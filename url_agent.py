@@ -484,71 +484,65 @@ class URLAgent:
 
 
 if __name__ == "__main__":
-    from dataset_handling import load_meajor_dataset
+    from dataset_handling import (
+        build_eml_corpus,
+        build_url_corpus,
+        extract_url_features_from_url_corpus,
+    )
     from feature_extraction import FeatureExtractor
 
     print("="*70)
-    print("URL AGENT — Training on MeAJOR Corpus")
+    print("URL AGENT — Training on Multiple Corpora")
+    print("(phishing_pot + Nazario phishing  |  Enron ham)")
     print("="*70)
 
     # ----------------------------------------
-    # STEP 1: Load dataset
+    # STEP 1: Configure data paths
+    # Same three sources as the Metadata Agent — keeps training data
+    # consistent across all three agents.
+    # Update after downloading in Colab:
+    #   !git clone https://github.com/rf-peixoto/phishing_pot.git
+    #   !wget https://monkey.org/~jose/phishing/phishing3.mbox
     # ----------------------------------------
-    TOTAL_SAMPLES = 20000
-    LEGIT_RATIO   = 0.7  # 70% legitimate, 30% phishing
+    PHISHING_DIRS  = ['phishing_pot/emails']
+    PHISHING_MBOX  = ['phishing3.mbox']
+    ENRON_MAX      = 5000
 
-    df, label_col = load_meajor_dataset(
-        total_samples=TOTAL_SAMPLES,
-        legit_ratio=LEGIT_RATIO
+    # ----------------------------------------
+    # STEP 2: Build EML corpus (email-embedded URLs)
+    # ----------------------------------------
+    eml_df = build_eml_corpus(
+        phishing_dirs=PHISHING_DIRS,
+        phishing_mbox_paths=PHISHING_MBOX,
+        enron_max=ENRON_MAX,
+        nazario_after_year=2022,
     )
 
-    if df is None:
-        print("\n✗ Dataset load failed. Cannot continue.")
+    # ----------------------------------------
+    # STEP 3: Build URL corpus from .eml bodies
+    # ----------------------------------------
+    url_df = build_url_corpus(
+        eml_df=eml_df if len(eml_df) > 0 else None,
+    )
+
+    if len(url_df) == 0:
+        print("\n✗ No URLs loaded. Check data paths and re-run.")
         exit(1)
 
-    text_column = None
-    for col in ['text', 'body', 'email_body', 'content', 'email', 'Email Text']:
-        if col in df.columns:
-            text_column = col
-            break
-
-    if text_column is None:
-        print(f"\n✗ Could not find text column. Available: {list(df.columns)}")
-        exit(1)
-
-    print(f"\n✓ Using text column: '{text_column}'")
+    # ----------------------------------------
+    # STEP 4: Extract URL features
+    # ----------------------------------------
+    extractor = FeatureExtractor()
+    features_df, labels = extract_url_features_from_url_corpus(url_df, extractor)
 
     # ----------------------------------------
-    # STEP 2: Extract URL features only
-    # ----------------------------------------
-    extractor    = FeatureExtractor()
-    texts        = df[text_column].tolist()
-    all_features = []
-
-    print("\nExtracting URL features from emails...")
-    for i, text in enumerate(texts):
-        if i % 2000 == 0 and i > 0:
-            print(f"  Processed {i}/{len(texts)} emails...")
-        text = str(text) if not isinstance(text, str) else text
-        try:
-            all_features.append(extractor.extract_url_features(text))
-        except Exception as e:
-            print(f"  Warning: failed on sample {i}: {e}")
-            all_features.append({})
-
-    features_df = pd.DataFrame(all_features).fillna(0)
-    labels      = df[label_col].values
-
-    print(f"\n✓ Extracted {len(features_df.columns)} URL features from {len(features_df)} emails")
-
-    # ----------------------------------------
-    # STEP 3: Train / test split
+    # STEP 5: Train / test split
     # ----------------------------------------
     X_train, X_test, y_train, y_test = train_test_split(
         features_df, labels,
         test_size=0.3,
         random_state=42,
-        stratify=labels
+        stratify=labels,
     )
 
     print(f"\nTraining samples: {len(X_train)}")
@@ -557,18 +551,18 @@ if __name__ == "__main__":
     print(f"  - Phishing:     {(y_test == 1).sum()}")
 
     # ----------------------------------------
-    # STEP 4: Train the agent
+    # STEP 6: Train the agent
     # ----------------------------------------
     agent = URLAgent(n_estimators=100, max_depth=20, random_state=42)
     agent.train(X_train, y_train, validate=True, tune_hyperparameters=False)
 
     # ----------------------------------------
-    # STEP 5: Evaluate
+    # STEP 7: Evaluate
     # ----------------------------------------
     results = agent.evaluate(X_test, y_test, plot_results=True)
 
     # ----------------------------------------
-    # STEP 6: Save model and results
+    # STEP 8: Save model and results
     # ----------------------------------------
     agent.save_model('url_agent.pkl')
     agent.export_results(results, 'url_agent_results.json')

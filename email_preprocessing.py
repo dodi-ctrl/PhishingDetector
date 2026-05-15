@@ -1,6 +1,9 @@
+import os
+import mailbox
 import re
 from email import policy
 from email.parser import BytesParser
+from email.utils import parsedate_to_datetime
 
 
 def _extract_body(msg):
@@ -77,6 +80,70 @@ def preprocess_email(email):
     }
 
     return features
+
+
+def preprocess_eml_file(path, label=None):
+    """
+    Read a single .eml file from disk and return preprocess_email() output.
+    Adds 'source_path' and (optional) 'label' fields.
+    """
+    with open(path, 'rb') as f:
+        raw = f.read()
+    result = preprocess_email(raw)
+    result['source_path'] = path
+    if label is not None:
+        result['label'] = label
+    return result
+
+
+def preprocess_eml_directory(directory, label=None, recursive=True):
+    """
+    Walk a directory, preprocess every .eml file, and return a list of
+    feature dicts. Useful for bulk-processing phishing_pot exports.
+    """
+    results = []
+    if not os.path.isdir(directory):
+        print(f"Warning: directory not found: {directory}")
+        return results
+
+    walker = os.walk(directory) if recursive else [(directory, [], os.listdir(directory))]
+    for root, _, files in walker:
+        for fname in files:
+            if fname.lower().endswith('.eml'):
+                fpath = os.path.join(root, fname)
+                try:
+                    results.append(preprocess_eml_file(fpath, label=label))
+                except Exception as e:
+                    print(f"  Skipping {fpath}: {e}")
+    return results
+
+
+def preprocess_mbox(mbox_path, label=None, after_year=None):
+    """
+    Iterate an mbox file (e.g. Nazario phishing3.mbox) and return a list of
+    preprocess_email() outputs. Optionally filter to messages from
+    after_year onwards (using the Date header).
+    """
+    results = []
+    if not os.path.isfile(mbox_path):
+        print(f"Warning: mbox not found: {mbox_path}")
+        return results
+
+    for msg in mailbox.mbox(mbox_path):
+        try:
+            if after_year is not None:
+                try:
+                    if parsedate_to_datetime(msg.get('Date', '')).year < after_year:
+                        continue
+                except Exception:
+                    pass  # include if Date is unparseable
+            features = preprocess_email(msg.as_bytes())
+            if label is not None:
+                features['label'] = label
+            results.append(features)
+        except Exception:
+            continue
+    return results
 
 
 if __name__ == "__main__":
