@@ -13,6 +13,9 @@ import gradio as gr
 import torch
 import torch.nn.functional as F
 import numpy as np
+import pandas as pd
+import os
+from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')   # avoid showing plots in notebook
 import matplotlib.pyplot as plt
@@ -143,6 +146,101 @@ def classify_eml(file_obj, num_features, num_samples):
     verdict, fig, detail = classify_and_explain(full_text, int(num_features), int(num_samples))
     return f"**Subject parsed:** {subject}\n\n{verdict}", fig, detail
 
+
+def classify_batch(files, num_features, num_samples, progress=gr.Progress()):
+    """Classify a batch of .eml files and return a results table + downloadable CSV."""
+    if not files:
+        return None, "⚠️ No files provided. Drop one or more .eml files in the box above.", None
+
+    rows = []
+    n = len(files)
+    progress(0, desc=f"Starting batch of {n} email(s)...")
+
+    for i, file_obj in enumerate(files):
+        fname = Path(file_obj.name).name
+        progress((i + 0.5) / n, desc=f"[{i+1}/{n}] {fname[:60]}")
+
+        try:
+            with open(file_obj.name, 'rb') as f:
+                raw = f.read()
+            subject, body = parse_eml_bytes(raw)
+            full_text = f"Subject: {subject}\n\n{body}".strip()
+
+            if not full_text or len(full_text) < 5:
+                rows.append({
+                    "File": fname,
+                    "Subject": subject[:80] if subject else "(empty)",
+                    "Verdict": "ERROR",
+                    "Confidence": "—",
+                    "P(Safe)": "—",
+                    "P(Phishing)": "—",
+                    "Top phishing tokens": "(empty body)",
+                    "Top safe tokens": "—",
+                })
+                continue
+
+            # Classify
+            probs = predict_proba_for_lime([full_text])[0]
+            p_safe, p_phish = float(probs[0]), float(probs[1])
+            pred_label = CLASS_NAMES[int(np.argmax(probs))]
+            confidence = max(p_safe, p_phish)
+
+            # LIME (use lower sample count by default — speed matters here)
+            exp = explainer.explain_instance(
+                full_text,
+                predict_proba_for_lime,
+                num_features=int(num_features),
+                num_samples=int(num_samples),
+                labels=[1],
+            )
+            feats = exp.as_list(label=1)
+            phishing_tokens = [t for t, w in feats if w > 0][:3]
+            safe_tokens = [t for t, w in feats if w < 0][:3]
+
+            rows.append({
+                "File": fname,
+                "Subject": subject[:80] + ("..." if len(subject) > 80 else ""),
+                "Verdict": pred_label,
+                "Confidence": f"{confidence*100:.2f}%",
+                "P(Safe)": f"{p_safe*100:.2f}%",
+                "P(Phishing)": f"{p_phish*100:.2f}%",
+                "Top phishing tokens": ", ".join(phishing_tokens) or "—",
+                "Top safe tokens": ", ".join(safe_tokens) or "—",
+            })
+        except Exception as e:
+            rows.append({
+                "File": fname,
+                "Subject": f"(parse error: {type(e).__name__})",
+                "Verdict": "ERROR",
+                "Confidence": "—",
+                "P(Safe)": "—",
+                "P(Phishing)": "—",
+                "Top phishing tokens": str(e)[:60],
+                "Top safe tokens": "—",
+            })
+
+    progress(1.0, desc="Done.")
+    df = pd.DataFrame(rows)
+
+    # Summary block
+    n_total    = len(rows)
+    n_phishing = sum(1 for r in rows if r["Verdict"] == "PHISHING")
+    n_safe     = sum(1 for r in rows if r["Verdict"] == "SAFE")
+    n_error    = sum(1 for r in rows if r["Verdict"] == "ERROR")
+
+    summary = (
+        f"### 📊 Batch results — {n_total} email{'s' if n_total != 1 else ''} processed\n\n"
+        f"- 🚨 **PHISHING**: {n_phishing}  ({n_phishing/n_total*100:.0f}%)\n"
+        f"- ✅ **SAFE**:      {n_safe}  ({n_safe/n_total*100:.0f}%)\n"
+        f"- ❌ **ERROR**:     {n_error}  ({n_error/n_total*100:.0f}%)\n"
+    )
+
+    # Save CSV for download
+    csv_path = "/tmp/batch_results.csv"
+    df.to_csv(csv_path, index=False)
+
+    return df, summary, csv_path
+
 # ---------- Gradio UI ----------
 EXAMPLES = [
     ["""Subject: Your account has been suspended
@@ -222,6 +320,44 @@ with gr.Blocks(title="Smart Phishing Detector — DistilBERT + LIME") as demo:
                     fig_out2 = gr.Plot(label="LIME explanation")
                     detail_out2 = gr.Code(label="Token contributions", language="markdown")
             btn2.click(fn=classify_eml, inputs=[file_in, nf2, ns2], outputs=[verdict_out2, fig_out2, detail_out2])
+
+        with gr.TabItem("📚 Batch .eml upload"):
+            gr.Markdown(
+                "Drop **multiple `.eml` files** at once. Each will be classified "
+                "and explained; results appear as a sortable table and as a "
+                "downloadable CSV."
+            )
+            with gr.Row():
+                with gr.Column(scale=1):
+                    files_in = gr.File(
+                        label="Drop multiple .eml files",
+                        file_count="multiple",
+                        file_types=['.eml'],
+                    )
+                    nf3 = gr.Slider(5, 15, value=8, step=1,
+                                    label="LIME features per email")
+                    ns3 = gr.Slider(100, 800, value=250, step=50,
+                                    label="LIME samples (lower = faster batches)")
+                    btn3 = gr.Button("🚀 Analyze all", variant="primary")
+                    summary_out = gr.Markdown()
+                    csv_out = gr.File(label="📥 Download results CSV",
+                                       interactive=False)
+                with gr.Column(scale=2):
+                    df_out = gr.Dataframe(
+                        label="Per-email results",
+                        wrap=True,
+                        interactive=False,
+                        headers=[
+                            "File", "Subject", "Verdict", "Confidence",
+                            "P(Safe)", "P(Phishing)",
+                            "Top phishing tokens", "Top safe tokens",
+                        ],
+                    )
+            btn3.click(
+                fn=classify_batch,
+                inputs=[files_in, nf3, ns3],
+                outputs=[df_out, summary_out, csv_out],
+            )
 
     gr.Markdown(
         """
