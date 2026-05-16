@@ -224,8 +224,9 @@ def classify_batch(files, num_features, num_samples, progress=gr.Progress()):
 
     # Summary block
     n_total    = len(rows)
-    n_phishing = sum(1 for r in rows if r["Verdict"] == "PHISHING")
-    n_safe     = sum(1 for r in rows if r["Verdict"] == "SAFE")
+    # Verdict values are case-sensitive: "Phishing" / "Safe" / "ERROR"
+    n_phishing = sum(1 for r in rows if r["Verdict"] == "Phishing")
+    n_safe     = sum(1 for r in rows if r["Verdict"] == "Safe")
     n_error    = sum(1 for r in rows if r["Verdict"] == "ERROR")
 
     summary = (
