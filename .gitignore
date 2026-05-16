@@ -1,8 +1,68 @@
-ealvaradob phishing dataset/combined_reduced.json
-ealvaradob phishing dataset/combined_full.json
-ealvaradob phishing dataset/gitattributes
-ealvaradob phishing dataset/phishing-dataset.py
-ealvaradob phishing dataset/README.md
-ealvaradob phishing dataset/texts.json
-ealvaradob phishing dataset/urls.json
-ealvaradob phishing dataset/webs.json
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Jupyter / Colab
+.ipynb_checkpoints/
+*-checkpoint.ipynb
+
+# Models / checkpoints (too large for git)
+*.bin
+*.pt
+*.pth
+*.h5
+*.ckpt
+*.safetensors
+*.onnx
+distilbert_phishing_model/
+saved_models/
+
+# Datasets / data
+data/raw/
+data/cache/
+*.mbox
+*.eml
+phishing_pot/
+nazario_phishing/
+umbrella-top-1m.csv*
+*.parquet
+
+# Keep curated artefacts
+!synthetic_legit_emails.csv
+
+# Outputs
+outputs/
+results/
+lime_outputs/
+lime_outputs.zip
+summary.json
+summary-*.json
+demo_qr.png
+*.zip
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# HF cache
+.cache/
+huggingface/
+
+# Logs
+*.log
+wandb/
+runs/
