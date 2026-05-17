@@ -1,0 +1,27 @@
+# Python dependencies for the Smart Phishing Detection System.
+# Install with:  pip install -r requirements.txt
+# Tested on Python 3.10 / 3.11 / 3.12.
+
+# Core ML
+torch>=2.0.0
+transformers>=4.40.0
+datasets>=2.18.0
+scikit-learn>=1.4.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Explainability
+lime>=0.2.0
+
+# Interactive demo
+gradio>=4.0.0
+
+# Utilities
+matplotlib>=3.7.0
+tqdm>=4.66.0
+
+# QR-code generator for the live demo URL
+qrcode[pil]>=7.4.2
+
+# Optional but recommended for performance
+accelerate>=0.27.0
