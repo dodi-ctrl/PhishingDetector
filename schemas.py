@@ -1,11 +1,28 @@
 from pydantic import BaseModel
-from typing import Any
+from typing import  Any
+
+
+class TextAgentResult(BaseModel):
+    verdict: str
+    phishing_probability: float
+    safe_probability: float
+    confidence: float
+
+class RFAgentResult(BaseModel):
+    verdict: str
+    phishing_probability: float
+    legitimate_probability: float
+    confidence: float
+
+class AgentsResult(BaseModel):
+    text: TextAgentResult
+    url: RFAgentResult
+    metadata: RFAgentResult
 
 class EmailRequest(BaseModel):
     raw_email_b64: str
 
-#TODO: define fully once model team confirms output shape
 class EmailResponse(BaseModel):
     verdict: str
     confidence: float
-    agents: Any
+    agents: AgentsResult

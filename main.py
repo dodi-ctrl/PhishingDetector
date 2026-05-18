@@ -3,18 +3,33 @@ from fastapi import FastAPI, HTTPException
 from schemas import EmailRequest, EmailResponse
 from email import message_from_string
 from email.policy import default as email_default_policy
+from fastapi.middleware.cors import CORSMiddleware
 import base64
+import sys
+import os
+import numpy as np
+import torch
+import torch.nn.functional as F
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+sys.path.append(os.path.dirname(__file__))
+
+from url_agent import URLAgent
+from metadata_agent import MetadataAgent
+from core.feature_extraction import FeatureExtractor
+
+
 
 # -------------------------------------------------------
-# Email parser
-# Copied directly from gradio_demo_cell.py 
+# Global agents store
+# -------------------------------------------------------
+agents = {}
+CLASS_NAMES = ["Safe", "Phishing"]
+
+# -------------------------------------------------------
+# Email parser — copied from gradio_demo_cell.py
 # -------------------------------------------------------
 def parse_eml_text(raw_bytes: bytes) -> tuple[str, str]:
-    """
-    Parse raw email bytes into (subject, body).
-    Tries UTF-8 first, falls back to latin-1.
-    Prefers text/plain, falls back to text/html.
-    """
     try:
         msg = message_from_string(
             raw_bytes.decode("utf-8", errors="ignore"),
@@ -54,28 +69,75 @@ def parse_eml_text(raw_bytes: bytes) -> tuple[str, str]:
 
     return subject, body
 
+# -------------------------------------------------------
+# DistilBERT inference — mirrors gradio_demo_cell.py
+# -------------------------------------------------------
+def predict_proba_for_lime(texts):
+    model   = agents["text_model"]
+    tokenizer = agents["tokenizer"]
+    device  = agents["device"]
+
+    all_probs = []
+    for i in range(0, len(texts), 16):
+        batch = texts[i:i + 16]
+        enc = tokenizer(
+            batch, padding=True, truncation=True,
+            max_length=512, return_tensors="pt"
+        ).to(device)
+        with torch.no_grad():
+            logits = model(**enc).logits
+        probs = F.softmax(logits, dim=-1).cpu().numpy()
+        all_probs.append(probs)
+    return np.concatenate(all_probs, axis=0)
 
 # -------------------------------------------------------
-# App setup
+# App setup — load all models once at startup
 # -------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # TODO: load models here once model team delivers
-    # agents["url"]      = ...
-    # agents["metadata"] = ...
-    # agents["text"]     = ...
-    print("Server started. Models not yet loaded — awaiting model team.")
+    print("Loading models...")
+
+    # Random Forest agents
+    url = URLAgent()
+    url.load_model("models/url_agent.pkl")
+    agents["url"] = url
+    print("URL agent loaded.")
+
+    meta = MetadataAgent()
+    meta.load_model("models/metadata_agent.pkl")
+    agents["metadata"] = meta
+    print("Metadata agent loaded.")
+
+    # DistilBERT
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokenizer  = AutoTokenizer.from_pretrained("models/distilbert_phishing")
+    text_model = AutoModelForSequenceClassification.from_pretrained("models/distilbert_phishing")
+    text_model.to(device)
+    text_model.eval()
+
+    agents["tokenizer"]   = tokenizer
+    agents["text_model"]  = text_model
+    agents["device"]      = device
+    print(f"DistilBERT loaded on {device}.")
+
+    print("All models ready.")
     yield
     print("Server shutting down.")
 
 
 app = FastAPI(
     title="Phishing Detector API",
-    description="Multi-agent phishing detection backend.",
-    version="0.1.0",
+    description="Multi-agent phishing detection: DistilBERT + URL RF + Metadata RF with LIME.",
+    version="1.0.0",
     lifespan=lifespan
 )
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # -------------------------------------------------------
 # Endpoints
@@ -87,26 +149,72 @@ def root():
 
 @app.post("/analyse", response_model=EmailResponse)
 def analyse_email(req: EmailRequest):
+
     # 1. Decode base64
     try:
         raw_bytes = base64.b64decode(req.raw_email_b64)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 string")
 
-    # 2. Parse email
+    # 2. Parse email text
     subject, body = parse_eml_text(raw_bytes)
     full_text = f"Subject: {subject}\n\n{body}".strip()
 
     if not full_text:
         raise HTTPException(status_code=422, detail="Could not extract text from email")
 
-    # TODO: run agents once model team delivers
-    # url_result  = agents["url"].get_prediction_with_confidence(features)
-    # meta_result = agents["metadata"].get_prediction_with_confidence(features)
-    # text_result = run_distilbert(full_text)
-    # verdict     = fuse(url_result, meta_result, text_result)
+    # 3. DistilBERT + LIME
+    # 3. DistilBERT
+    try:
+        probs = predict_proba_for_lime([full_text])[0]
+        p_safe, p_phish = float(probs[0]), float(probs[1])
+        text_verdict = CLASS_NAMES[int(np.argmax(probs))]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Text agent failed: {str(e)}")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Text agent failed: {str(e)}")
 
-    raise HTTPException(
-        status_code=503,
-        detail="Models not yet available. Backend is ready — awaiting model files."
+    # 4. URL + Metadata RF agents
+    try:
+        extractor = FeatureExtractor()
+        features  = extractor.extract_features_from_eml(raw_bytes)
+        url_result  = agents["url"].get_prediction_with_confidence(features)
+        meta_result = agents["metadata"].get_prediction_with_confidence(features)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RF agents failed: {str(e)}")
+
+    # 5. Weighted fusion (based on README accuracy scores)
+    #    Text: 97.34% → 0.30 | URL: 99.34% → 0.35 | Metadata: 99.92% → 0.35
+    fused = (
+        0.30 * p_phish +
+        0.35 * url_result["phishing_probability"] +
+        0.35 * meta_result["phishing_probability"]
     )
+    final_verdict = "phishing" if fused >= 0.5 else "legitimate"
+
+    return {
+        "verdict": final_verdict,
+        "confidence": round(fused, 4),
+        "agents": {
+            "text": {
+                "verdict": text_verdict,
+                "phishing_probability": round(p_phish, 4),
+                "safe_probability": round(p_safe, 4),
+                "confidence": round(max(p_safe, p_phish), 4),
+                
+            },
+            "url": {
+                "verdict": url_result["verdict"],
+                "phishing_probability": round(url_result["phishing_probability"], 4),
+                "legitimate_probability": round(url_result["legitimate_probability"], 4),
+                "confidence": round(url_result["confidence"], 4),
+            },
+            "metadata": {
+                "verdict": meta_result["verdict"],
+                "phishing_probability": round(meta_result["phishing_probability"], 4),
+                "legitimate_probability": round(meta_result["legitimate_probability"], 4),
+                "confidence": round(meta_result["confidence"], 4),
+            },
+        }
+    }
