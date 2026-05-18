@@ -66,3 +66,21 @@ huggingface/
 *.log
 wandb/
 runs/
+ealvaradob phishing dataset/combined_full.json
+ealvaradob phishing dataset/combined_reduced.json
+ealvaradob phishing dataset/gitattributes
+ealvaradob phishing dataset/phishing-dataset.py
+ealvaradob phishing dataset/README.md
+ealvaradob phishing dataset/texts.json
+ealvaradob phishing dataset/urls.json
+ealvaradob phishing dataset/webs.json
+extension/background.js
+extension/manifest.json
+extension/content_scripts/banner.js
+extension/content_scripts/gmail.js
+extension/content_scripts/outlook.js
+extension/icons/icon16.png
+extension/icons/icon48.png
+extension/icons/icon128.png
+extension/popup/popup.html
+extension/popup/popup.js
