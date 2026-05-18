@@ -69,7 +69,7 @@ Colab notebooks in this order on a free T4 GPU runtime:
    report per-class metrics.
 
 To reproduce the **out-of-distribution augmentation** described in §4.5.1
-of the project report (if you have access to it):
+of the project report:
 
 3. Insert the cell from `augmentation_cell.py` into the DistilBERT
    notebook immediately before the train/test split. It pulls
