@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
+from lime.lime_text import LimeTextExplainer
 sys.path.append(os.path.dirname(__file__))
 
 from url_agent import URLAgent
@@ -76,6 +76,7 @@ def predict_proba_for_lime(texts):
     model   = agents["text_model"]
     tokenizer = agents["tokenizer"]
     device  = agents["device"]
+    
 
     all_probs = []
     for i in range(0, len(texts), 16):
@@ -118,6 +119,7 @@ async def lifespan(app: FastAPI):
     agents["tokenizer"]   = tokenizer
     agents["text_model"]  = text_model
     agents["device"]      = device
+    agents["lime"]        = LimeTextExplainer(class_names=CLASS_NAMES)
     print(f"DistilBERT loaded on {device}.")
 
     print("All models ready.")
@@ -217,4 +219,45 @@ def analyse_email(req: EmailRequest):
                 "confidence": round(meta_result["confidence"], 4),
             },
         }
+    }
+
+@app.post("/explain")
+def explain_email(req: EmailRequest):
+
+    # 1. Decode base64
+    try:
+        raw_bytes = base64.b64decode(req.raw_email_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 string")
+
+    # 2. Parse email text
+    subject, body = parse_eml_text(raw_bytes)
+    full_text = f"Subject: {subject}\n\n{body}".strip()
+
+    if not full_text:
+        raise HTTPException(status_code=422, detail="Could not extract text from email")
+
+    # 3. Run LIME
+    try:
+        exp = agents["lime"].explain_instance(
+            full_text,
+            predict_proba_for_lime,
+            num_features=10,
+            num_samples=400,
+            labels=[1],
+        )
+        lime_features = [
+            {
+                "token": token,
+                "weight": round(float(weight), 4),
+                "direction": "phishing" if weight > 0 else "safe"
+            }
+            for token, weight in exp.as_list(label=1)
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LIME explanation failed: {str(e)}")
+
+    return {
+        "lime_features": lime_features,
+        "num_features": len(lime_features)
     }
