@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import  Any
+from typing import  Any, List
 
 
 class TextAgentResult(BaseModel):
@@ -26,3 +26,12 @@ class EmailResponse(BaseModel):
     verdict: str
     confidence: float
     agents: AgentsResult
+
+class LimeFeature(BaseModel):
+    token: str
+    weight: float
+    direction: str
+
+class ExplainResponse(BaseModel):
+    lime_features: List[LimeFeature]
+    num_features: int
