@@ -9,6 +9,12 @@ text classifier, two Random Forest agents over URL and metadata features,
 a weighted decision-fusion layer, and a LIME explainability module that
 surfaces a human-readable rationale for every prediction.
 
+> 🛡 **Looking for the Chrome extension or the deployable backend?**
+> Those live in a separate, lighter repository — see
+> **[PhishLens](https://github.com/<TODO-handle>/PhishLens)**.
+> This repo holds the **training notebooks and per-agent code** only;
+> PhishLens is what you clone if you just want to install and run the system.
+
 ---
 
 ## At a glance
@@ -18,9 +24,6 @@ surfaces a human-readable rationale for every prediction.
 | Text Agent      | DistilBERT         | 97.34%   | 0.9665 | —       |
 | URL Agent       | Random Forest      | 99.34%   | 0.9911 | 0.9969  |
 | Metadata Agent  | Random Forest      | 99.92%   | 0.9994 | 1.0000  |
-
-Live demo (when running): a public Gradio URL is printed by the demo
-notebook cell, valid for 72 hours per launch.
 
 ---
 
@@ -32,7 +35,7 @@ PhishingDetector/
 ├── requirements.txt                             Python dependencies
 ├── .gitignore
 │
-├── DistilBERT_Phishing_Text_Agent.ipynb         Text agent training + LIME + Gradio
+├── DistilBERT_Phishing_Text_Agent.ipynb         Text agent training + LIME
 ├── Metadata_Agent.ipynb                         Metadata agent training
 ├── URL_Agent.ipynb                              URL agent training
 │
@@ -44,13 +47,13 @@ PhishingDetector/
 ├── augmentation_cell.py                         Colab cell — augment training set
 │                                                with PhishNChips + cybersectony +
 │                                                hand-templated emails
-├── gradio_demo_cell.py                          Colab cell — Gradio inference UI
-│                                                with LIME explanations
-├── generate_qr.py                               Standalone QR-code generator for
-│                                                the live demo URL
 │
 └── synthetic_legit_emails.csv                   150 hand-templated modern legits
 ```
+
+The earlier `gradio_demo_cell.py`, `generate_qr.py`, `main.py` and `dist.zip`
+have been moved out of this repo: the deployable system is now the
+**PhishLens** Chrome extension + FastAPI backend (linked above).
 
 ---
 
@@ -77,35 +80,41 @@ of the project report:
    the local `synthetic_legit_emails.csv`, deduplicates, and replaces the
    training DataFrame. Re-run from that cell onwards.
 
-To launch the **interactive Gradio demo**:
+To run the **deployable system** (Chrome extension + local backend +
+real-time Gmail integration):
 
-4. Append the cell from `gradio_demo_cell.py` after training. It installs
-   Gradio + LIME, defines the inference UI (with both pasted-text and
-   `.eml` upload tabs), and calls `demo.launch(share=True)` which prints
-   a public `*.gradio.live` URL valid for 72 hours.
-
-To generate a **QR code** for the demo URL:
-
-5. Locally, `pip install "qrcode[pil]"`, then
-   `python generate_qr.py <your-gradio-url> demo_qr.png`.
+4. Head over to the **[PhishLens](https://github.com/<TODO-handle>/PhishLens)**
+   repository and follow its quickstart (Docker or manual install).
 
 ---
 
 ## Datasets
 
-| Source | Role | Count |
-|--------|------|------:|
-| zefang-liu/phishing-email-dataset (MeAJOR Corpus) | Baseline text agent training | 18,650 |
-| rf-peixoto/phishing\_pot                          | Real-world phishing samples  | varies |
-| Nazario phishing corpus (filtered to ≥ 2022)      | Modern phishing baseline     | varies |
-| SetFit/enron\_spam (Enron Ham)                    | Legitimate baseline          | varies |
-| AreLit/PhishNChips                                | Modern workplace legits      | 1,333  |
-| cybersectony/PhishingEmailDetectionv2.0           | Augmentation legits          | 11,322 |
-| `synthetic_legit_emails.csv` (this repo)          | NG-domain hand-templated     | 150    |
-| Cisco Umbrella top-1m                             | URL agent legit baseline     | 10,000 |
+| Source                                            | Role                          | Count  |
+|---------------------------------------------------|-------------------------------|-------:|
+| zefang-liu/phishing-email-dataset (MeAJOR Corpus) | Baseline text agent training  | 18,650 |
+| rf-peixoto/phishing\_pot                          | Real-world phishing samples   | varies |
+| Nazario phishing corpus (filtered to ≥ 2022)      | Modern phishing baseline      | varies |
+| SetFit/enron\_spam (Enron Ham)                    | Legitimate baseline           | varies |
+| AreLit/PhishNChips                                | Modern workplace legits       | 1,333  |
+| cybersectony/PhishingEmailDetectionv2.0           | Augmentation legits           | 11,322 |
+| `synthetic_legit_emails.csv` (this repo)          | NG-domain hand-templated      | 150    |
+| Cisco Umbrella top-1m                             | URL agent legit baseline      | 10,000 |
 
 After deduplication, the augmented text corpus contains **29,555 emails**
 (17,447 legitimate / 12,108 phishing, ratio 1.44).
+
+---
+
+## Trained model
+
+The DistilBERT checkpoint (`model.safetensors`, ~268 MB) is **not stored in
+this repo** — GitHub's per-file limit is 100 MB. It is hosted on Hugging
+Face Hub: **`<TODO-handle>/phishlens-distilbert`** *(will be updated when
+published)*.
+
+The URL and metadata Random Forest `.pkl` artefacts are smaller and shipped
+alongside the PhishLens backend image.
 
 ---
 
@@ -118,7 +127,8 @@ The system has four known limitations:
 2. **PDF attachments are ignored** — only `text/plain` and `text/html`
    parts of an `.eml` file are parsed. Emails whose substantive content
    lives in an attached PDF (lab reports, invoices, contracts) are
-   effectively classified on an empty body.
+   effectively classified on an empty body. The PhishLens runtime
+   mitigates this with a trusted-domain allowlist.
 3. **Niche marketing / recruitment false positives** — promotional
    messages and specialised recruitment emails outside the augmentation
    distribution are still flagged.
