@@ -11,7 +11,7 @@ surfaces a human-readable rationale for every prediction.
 
 > 🛡 **Looking for the Chrome extension or the deployable backend?**
 > Those live in a separate, lighter repository — see
-> **[PhishLens](https://github.com/<TODO-handle>/PhishLens)**.
+> **[PhishLens](https://github.com/Sonje03/PhishLens)**.
 > This repo holds the **training notebooks and per-agent code** only;
 > PhishLens is what you clone if you just want to install and run the system.
 
@@ -83,7 +83,7 @@ of the project report:
 To run the **deployable system** (Chrome extension + local backend +
 real-time Gmail integration):
 
-4. Head over to the **[PhishLens](https://github.com/<TODO-handle>/PhishLens)**
+4. Head over to the **[PhishLens](https://github.com/Sonje03/PhishLens)**
    repository and follow its quickstart (Docker or manual install).
 
 ---
