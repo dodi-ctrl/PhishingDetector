@@ -84,3 +84,6 @@ extension/icons/icon48.png
 extension/icons/icon128.png
 extension/popup/popup.html
 extension/popup/popup.js
+
+# PyCharm
+.idea/
