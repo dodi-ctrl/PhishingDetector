@@ -11,7 +11,7 @@ surfaces a human-readable rationale for every prediction.
 
 > 🛡 **Looking for the Chrome extension or the deployable backend?**
 > Those live in a separate, lighter repository — see
-> **[PhishLens](https://github.com/<TODO-handle>/PhishLens)**.
+> **[PhishLens](https://github.com/AnzouK/PhishLens)**.
 > This repo holds the **training notebooks and per-agent code** only;
 > PhishLens is what you clone if you just want to install and run the system.
 
@@ -83,7 +83,7 @@ of the project report:
 To run the **deployable system** (Chrome extension + local backend +
 real-time Gmail integration):
 
-4. Head over to the **[PhishLens](https://github.com/<TODO-handle>/PhishLens)**
+4. Head over to the **[PhishLens](https://github.com/AnzouK/PhishLens)**
    repository and follow its quickstart (Docker or manual install).
 
 ---
@@ -110,11 +110,11 @@ After deduplication, the augmented text corpus contains **29,555 emails**
 
 The DistilBERT checkpoint (`model.safetensors`, ~268 MB) is **not stored in
 this repo** — GitHub's per-file limit is 100 MB. It is hosted on Hugging
-Face Hub: **`<TODO-handle>/phishlens-distilbert`** *(will be updated when
-published)*.
+Face Hub: **[`AnzouKiona/phishlens-distilbert`](https://huggingface.co/AnzouKiona/phishlens-distilbert)**.
 
-The URL and metadata Random Forest `.pkl` artefacts are smaller and shipped
-alongside the PhishLens backend image.
+The URL and metadata Random Forest agents are also on Hugging Face Hub:
+**[`AnzouKiona/phishlens-agents`](https://huggingface.co/AnzouKiona/phishlens-agents)** —
+the PhishLens backend downloads them automatically at startup.
 
 ---
 
