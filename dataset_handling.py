@@ -530,7 +530,7 @@ def load_enron_ham_from_huggingface(max_samples=5000):
         text    = row.get('text', '')    or ''
         sender  = row.get('sender', 'enron@enron.com') or 'enron@enron.com'
 
-        # Minimal RFC 2822 envelope — no auth headers, no Received chain.
+        # Minimal RFC 2822 envelope: no auth headers, no Received chain.
         # Metadata features that depend on SPF/DKIM/DMARC will be zero,
         # which is the correct baseline for this corpus.
         raw = (
@@ -570,7 +570,7 @@ def load_phishtank_urls(csv_path, max_urls=50000):
 def load_umbrella_domains(csv_path, limit=50000):
     """
     Load Cisco Umbrella top-1M CSV (rank,domain). Returns list of
-    ('https://<domain>/', label=0) tuples — minimal URL for feature extraction.
+    ('https://<domain>/', label=0) tuples: minimal URL for feature extraction.
     """
     if not os.path.isfile(csv_path):
         print(f"  Warning: Umbrella CSV not found: {csv_path}")
@@ -634,7 +634,7 @@ def build_eml_corpus(
         all_records.append({'raw_bytes': raw, 'label': lbl, 'source': 'enron'})
 
     if not all_records:
-        print("\nWarning: No emails loaded — check your data paths.")
+        print("\nWarning: No emails loaded: check your data paths.")
         return pd.DataFrame(columns=['raw_bytes', 'label', 'source'])
 
     df = pd.DataFrame(all_records)
@@ -708,7 +708,7 @@ def build_url_corpus(
             all_records.append({'url_text': url, 'label': lbl, 'source': 'umbrella'})
 
     if not all_records:
-        print("\nWarning: No URLs loaded — check your data paths.")
+        print("\nWarning: No URLs loaded: check your data paths.")
         return pd.DataFrame(columns=['url_text', 'label', 'source'])
 
     df = pd.DataFrame(all_records)
@@ -726,7 +726,7 @@ def build_url_corpus(
 def extract_body_text_from_eml_corpus(eml_df):
     """
     Extract plain-text body from each .eml in eml_df for DistilBERT fine-tuning.
-    Returns pd.DataFrame with columns: text, label, source — suitable for
+    Returns pd.DataFrame with columns: text, label, source, suitable for
     concatenation with the MeAJOR CSV corpus.
     """
     rows = []
@@ -785,7 +785,7 @@ def extract_metadata_features_from_eml_corpus(eml_df, extractor):
 def extract_url_features_from_url_corpus(url_df, extractor):
     """
     Run extract_url_features() on every entry in url_df.
-    Each row's url_text is treated as the 'email body' — the regex inside
+    Each row's url_text is treated as the 'email body': the regex inside
     extract_url_features finds the URL and processes it.
 
     Parameters

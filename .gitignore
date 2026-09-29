@@ -87,3 +87,6 @@ extension/popup/popup.js
 
 # PyCharm
 .idea/
+
+# Local backup of the git folder, never publish it
+.git.backup_before_rebrand/

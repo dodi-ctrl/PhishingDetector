@@ -48,7 +48,7 @@ def preprocess_email(email):
     ]
 
     if isinstance(email, (str, bytes)):
-        # Raw RFC 2822 input — parse headers and extract body via MIME walker
+        # Raw RFC 2822 input: parse headers and extract body via MIME walker
         raw_bytes = email.encode() if isinstance(email, str) else email
         msg = BytesParser(policy=policy.default).parsebytes(raw_bytes)
         raw_text = _extract_body(msg)
@@ -64,7 +64,7 @@ def preprocess_email(email):
     text = re.sub(r'<[^>]+>', ' ', raw_text)
     text = text.lower().strip()
 
-    # Extract URLs — avoid capturing trailing punctuation with [^\s<>"']+
+    # Extract URLs, avoiding capturing trailing punctuation with [^\s<>"']+
     urls = re.findall(r'https?://[^\s<>"\']+', raw_text)
 
     urgency_count = sum(text.count(word) for word in urgency_words)

@@ -252,7 +252,9 @@ class FeatureExtractor:
 
                     per_url.append({
                         'domain_length': len(domain),
-                        'domain_has_ip': int(bool(re.match(r'\d+\.\d+\.\d+\.\d+', domain))),
+                        # Bounded quantifiers + full-match anchors kill the
+                        # polynomial-ReDoS surface CodeQL flagged here.
+                        'domain_has_ip': int(bool(re.fullmatch(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', domain))),
                         'domain_has_hyphen': int('-' in domain),
                         'domain_has_at_symbol': int('@' in url),
                         'domain_dots_count': domain.count('.'),
@@ -482,7 +484,7 @@ class FeatureExtractor:
         """
         Convenience wrapper for raw .eml input. Parses the message once,
         extracts the body via the MIME walker, and returns a flat dict
-        combining text, URL, and metadata features — ready to feed into
+        combining text, URL, and metadata features: ready to feed into
         a single DataFrame row.
 
         Parameters
@@ -616,46 +618,3 @@ class FeatureExtractor:
 
 
 # Example usage
-if __name__ == "__main__":
-    # Initialize extractor
-    extractor = FeatureExtractor()
-    
-    # Example email content
-    sample_email = """From: support@paypa1-secure.com
-To: user@example.com
-Subject: URGENT: Verify Your Account Now!
-Date: Mon, 10 Apr 2025 10:00:00 +0000
-
-Dear Valued Customer,
-
-Your account has been temporarily suspended due to unusual activity.
-Please verify your identity immediately by clicking here:
-http://paypal-verify.suspicious-domain.tk/login?user=12345
-
-If you don't act within 24 hours, your account will be permanently closed.
-
-This is an automated message. Do not reply.
-"""
-    
-    # Extract features
-    print("Extracting text features...")
-    text_features = extractor.extract_text_features(sample_email)
-    print(f"Text features extracted: {len(text_features)} features")
-    print(f"Sample: {list(text_features.items())[:5]}\n")
-    
-    print("Extracting URL features...")
-    url_features = extractor.extract_url_features(sample_email)
-    print(f"URL features extracted: {len(url_features)} features")
-    print(f"Sample: {list(url_features.items())[:5]}\n")
-    
-    print("Extracting metadata features...")
-    metadata_features = extractor.extract_metadata_features(sample_email)
-    print(f"Metadata features extracted: {len(metadata_features)} features")
-    print(f"Sample: {list(metadata_features.items())[:5]}\n")
-    
-    print("Extracting all features at once...")
-    all_features = extractor.extract_all_features(sample_email)
-    print(f"Total feature categories: {len(all_features)}")
-    print(f"Text: {len(all_features['text'])} features")
-    print(f"URL: {len(all_features['url'])} features")
-    print(f"Metadata: {len(all_features['metadata'])} features")

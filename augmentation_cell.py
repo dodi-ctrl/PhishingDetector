@@ -120,7 +120,7 @@ print("=" * 60)
 # Upload synthetic_legit_emails.csv if not already in the env
 import os
 if not os.path.exists('synthetic_legit_emails.csv'):
-    print("synthetic_legit_emails.csv not found — please upload it.")
+    print("synthetic_legit_emails.csv not found: please upload it.")
     from google.colab import files
     uploaded = files.upload()
     # the uploader puts files in cwd

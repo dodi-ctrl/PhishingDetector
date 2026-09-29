@@ -525,7 +525,7 @@ if __name__ == "__main__":
     from feature_extraction import FeatureExtractor
 
     print("="*70)
-    print("METADATA AGENT — Training on Multiple Corpora")
+    print("METADATA AGENT: Training on Multiple Corpora")
     print("(phishing_pot + Nazario phishing  |  Enron ham)")
     print("="*70)
 
@@ -556,7 +556,7 @@ if __name__ == "__main__":
     # ----------------------------------------
     # STEP 3: Extract real metadata features
     # (SPF, DKIM, DMARC, Received headers, sender
-    #  analysis, subject flags — from actual headers)
+    #  analysis, subject flags, from actual headers)
     # ----------------------------------------
     extractor = FeatureExtractor()
     features_df, labels = extract_metadata_features_from_eml_corpus(eml_df, extractor)

@@ -331,7 +331,7 @@ class URLAgent:
         axes[0, 0].set_ylabel('Actual')
         axes[0, 0].set_xlabel('Predicted')
 
-        # 2. Feature Importance (all URL features — there are only 23)
+        # 2. Feature Importance (all URL features: there are only 23)
         feature_imp = pd.DataFrame({
             'feature': self.feature_names,
             'importance': self.model.feature_importances_
@@ -492,13 +492,13 @@ if __name__ == "__main__":
     from feature_extraction import FeatureExtractor
 
     print("="*70)
-    print("URL AGENT — Training on Multiple Corpora")
+    print("URL AGENT: Training on Multiple Corpora")
     print("(phishing_pot + Nazario phishing  |  Enron ham)")
     print("="*70)
 
     # ----------------------------------------
     # STEP 1: Configure data paths
-    # Same three sources as the Metadata Agent — keeps training data
+    # Same three sources as the Metadata Agent, which keeps training data
     # consistent across all three agents.
     # Update after downloading in Colab:
     #   !git clone https://github.com/rf-peixoto/phishing_pot.git
