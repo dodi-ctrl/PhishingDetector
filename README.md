@@ -84,8 +84,17 @@ The weights are too large for GitHub and live on Hugging Face:
 
 - DistilBERT text agent (about 268 MB):
   [`AnzouKiona/phishlens-distilbert`](https://huggingface.co/AnzouKiona/phishlens-distilbert)
-- URL and metadata Random Forests (joblib):
+- URL and metadata Random Forests:
   [`AnzouKiona/phishlens-agents`](https://huggingface.co/AnzouKiona/phishlens-agents)
+
+The Random Forests are published in the **skops** format
+(`url_agent.skops`, `metadata_agent.skops`), which loads without pickle:
+the loader only accepts scikit-learn, NumPy and SciPy types, so a
+tampered file cannot run code. The original `.joblib` exports stay in
+the repo for reproducibility; the notebooks still produce joblib, and
+PhishLens ships a one-time converter
+([`convert_agents_to_skops.py`](https://github.com/AnzouK/PhishLens/blob/main/backend/convert_agents_to_skops.py)).
+The model card lives in [`model_cards/phishlens-agents.md`](model_cards/phishlens-agents.md).
 
 The PhishLens backend downloads both at startup, so you only need them
 here if you want to evaluate or retrain.
@@ -103,6 +112,7 @@ url_agent.py, metadata_agent.py       Random Forest wrappers (training, save, lo
 augmentation_cell.py                  Colab cell for the augmentation step
 synthetic_legit_emails.csv            150 hand-written legitimate emails
 requirements.txt                      Python dependencies
+model_cards/                          Hugging Face model cards
 ```
 
 `feature_extraction.py` is copied into PhishLens and must stay identical
