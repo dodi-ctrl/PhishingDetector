@@ -14,8 +14,8 @@ pipeline_tag: tabular-classification
 
 Two scikit-learn Random Forest classifiers used by
 [PhishLens](https://github.com/AnzouK/PhishLens), a Chrome extension and
-FastAPI backend that detects phishing emails in Gmail and explains its
-verdicts. They sit next to a fine-tuned DistilBERT text classifier
+FastAPI backend that detects phishing emails in Gmail and Outlook and
+explains its verdicts. They sit next to a fine-tuned DistilBERT text classifier
 ([AnzouKiona/phishlens-distilbert](https://huggingface.co/AnzouKiona/phishlens-distilbert));
 the three scores are fused and then adjusted with SPF / DKIM / DMARC
 results and URL threat intelligence.

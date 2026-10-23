@@ -55,8 +55,8 @@ order:
    Cisco Umbrella top-1m for legitimate URLs), train the Random Forests
    and report per-class metrics.
 
-To reproduce the out-of-distribution augmentation described in section
-4.5.1 of the report, paste the cell from `augmentation_cell.py` into the
+To reproduce the out-of-distribution augmentation described in the
+project report (section 4.5.1), paste the cell from `augmentation_cell.py` into the
 DistilBERT notebook just before the train/test split and re-run from
 there. It adds `AreLit/PhishNChips`,
 `cybersectony/PhishingEmailDetectionv2.0` and the local
@@ -121,7 +121,12 @@ there: the Random Forests depend on its exact feature names and order.
 ## Limitations
 
 1. **English only.** Tokenizer and corpora are English; French, Hausa
-   and Yoruba phishing are out of distribution.
+   and Yoruba phishing are out of distribution. Since PhishLens 2.0 the
+   hosted service reads email text with a separate multilingual model,
+   trained outside this repository
+   ([how it was built](https://github.com/AnzouK/PhishLens/blob/main/docs/multilingual-model.md));
+   the English DistilBERT trained here remains the default of a
+   self-hosted PhishLens.
 2. **Offline evaluation.** All numbers come from held-out and
    qualitative test sets, not from a live inbox.
 3. **Corpus artefacts.** Phishing and legitimate samples come from
@@ -135,6 +140,11 @@ there: the Random Forests depend on its exact feature names and order.
 The runtime mitigations (sender authentication, threat intelligence,
 trust paths) and a full threat model are documented in the
 [PhishLens docs](https://github.com/AnzouK/PhishLens/tree/main/docs).
+
+## Contributors
+
+Built by the project team; see the
+[contributors](https://github.com/dodi-ctrl/PhishingDetector/graphs/contributors).
 
 ## License and citation
 
